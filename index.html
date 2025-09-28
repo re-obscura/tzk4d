@@ -1,357 +1,679 @@
 <!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
+<html lang="en">
+  <head>
+    <title>СтройКонтроль AR</title>
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>СтройКонтроль WebXR</title>
-    <meta name="theme-color" content="#3367D6">
-    <style>
-        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f0f0f0; }
-        .page { display: none; padding: 20px; text-align: center; }
-        .page.active { display: block; }
-        h1 { color: #333; }
-        p { color: #555; margin-bottom: 20px; }
-        button, input { font-size: 16px; padding: 12px 20px; margin: 5px; border-radius: 8px; border: 1px solid #ccc; cursor: pointer; }
-        button { background-color: #007bff; color: white; border-color: #007bff; }
-        button:disabled { background-color: #aaa; cursor: not-allowed; }
-        #status { margin-top: 20px; font-style: italic; color: #888; }
-        #overlay-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 10; pointer-events: none; }
-        #debug-info { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 10px; border-radius: 5px; font-family: monospace; white-space: pre; }
-        #exit-ar-button { display: none; position: absolute; top: 20px; right: 20px; z-index: 100; pointer-events: all; }
-        #controls-hint { display: none; width: calc(100% - 40px); position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.7); color: white; padding: 10px; border-radius: 5px; text-align: center; font-size: 14px; }
-    </style>
-</head>
-<body>
-    <div id="page-prepare" class="page active">
-        <h1>Этап 1: Подготовка</h1>
-        <p>Выберите .GLB модель с вашего устройства для сохранения в локальный кэш.</p>
-        <input type="file" id="model-input" accept=".glb, .gltf">
-        <button id="btn-save-model">Сохранить модель в кэш</button>
-        <div id="status-prepare"></div>
-    </div>
+    <link type="text/css" rel="stylesheet" href="main.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  </head>
+  <body>
 
-    <div id="page-offline" class="page">
-        <h1>Этап 2: Работа на объекте</h1>
-        <p>Модель загружена. Вы можете начать AR-инспекцию.</p>
-        <button id="btn-start-ar">Начать AR-сессию</button>
-        <p style="font-size: 12px; margin-top: 30px;">
-            <a href="#" id="link-reset">Сбросить кэш и выбрать другую модель</a>
-        </p>
-    </div>
+    <div class="ui-container">
+      <div id="info">Загрузите .igj файл для начала работы</div>
 
-    <div id="overlay-container">
-        <div id="debug-info"></div>
-        <div id="controls-hint">
-            <b>Управление:</b><br/>
-            Движение: 1 палец. Вращение/Масштаб: 2 пальца.
+      <label for="zipFileInput" class="file-input-label">Выбрать проект (.igj)</label>
+      <input type="file" id="zipFileInput" accept=".igj">
+
+      <div class="controls-container" id="controlsContainer">
+        <button id="toggleModelBtn" class="control-button">Скрыть модель</button>
+        <button id="showLogBtn" class="control-button">Журнал дефектов</button>
+        <div class="opacity-slider-group">
+          <label for="opacitySlider">Прозрачность</label>
+          <input type="range" min="0.0" max="1.0" value="1.0" step="0.05" id="opacitySlider">
         </div>
-        <button id="exit-ar-button">Выйти из AR</button>
+        <div class="debug-controls">
+          <label>
+            <input type="checkbox" id="debugToggle">
+            Режим отладки
+          </label>
+        </div>
+      </div>
+
+      <div id="infoBox">
+        <div id="infoBoxHeader">
+          <span id="infoBoxTitle">Информация об элементе</span>
+          <span id="infoBoxClose" onclick="document.getElementById('infoBox').style.display='none'">&times;</span>
+        </div>
+        <div id="infoBoxContent"></div>
+      </div>
+
+      <div class="slider-container" id="sliderContainer">
+        <label for="resolutionSlider" id="sliderLabel">Качество рендеринга: 70%</label>
+        <input type="range" min="0.1" max="1.0" value="0.7" step="0.05" id="resolutionSlider">
+      </div>
+
+      <!-- Defect Editor Modal -->
+      <div id="defectModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">Карточка дефекта</div>
+          <div class="modal-body">
+            <input type="hidden" id="defectIdInput">
+            <div class="form-group">
+              <button id="capturePhotoBtn" class="control-button">Сделать фото</button>
+              <img id="photoPreview" src="" alt="Фото дефекта">
+            </div>
+            <div class="form-group">
+              <label for="defectDescription">Текстовое описание</label>
+              <textarea id="defectDescription"></textarea>
+            </div>
+            <div class="form-group">
+              <label for="defectType">Тип дефекта</label>
+              <select id="defectType">
+                <option value="Конструктивный">Конструктивный</option>
+                <option value="Отделочный">Отделочный</option>
+                <option value="Инженерные системы">Инженерные системы</option>
+                <option value="Прочее">Прочее</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="defectCriticality">Критичность</label>
+              <select id="defectCriticality">
+                <option value="Низкая">Низкая</option>
+                <option value="Средняя">Средняя</option>
+                <option value="Высокая">Высокая</option>
+                <option value="Критическая">Критическая</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button id="cancelDefectBtn" class="control-button">Отмена</button>
+            <button id="saveDefectBtn" class="control-button">Сохранить</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Defect Log Modal -->
+      <div id="logModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">Журнал дефектов</div>
+          <div class="modal-body">
+            <ul id="defectLogList">
+              <!-- Log items will be generated here -->
+            </ul>
+          </div>
+          <div class="modal-footer">
+            <button id="closeLogBtn" class="control-button">Закрыть</button>
+          </div>
+        </div>
+      </div>
     </div>
+
 
     <script type="importmap">
-        {
-            "imports": {
-                "three": "./js/three.module.js",
-                "three/addons/": "./js/addons/"
-            }
+      {
+        "imports": {
+          "three": "./js/three.module.js",
+          "three/addons/": "./js/addons/"
         }
+      }
     </script>
 
     <script type="module">
-        import * as THREE from 'three';
-        import { ARButton } from 'three/addons/webxr/ARButton.js';
-        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-        // --- UI Elements ---
-        const pages = { prepare: document.getElementById('page-prepare'), offline: document.getElementById('page-offline') };
-        const statusPrepare = document.getElementById('status-prepare');
-        const modelInput = document.getElementById('model-input');
-        const btnSaveModel = document.getElementById('btn-save-model');
-        const btnStartAR = document.getElementById('btn-start-ar');
-        const linkReset = document.getElementById('link-reset');
-        const debugInfo = document.getElementById('debug-info');
-        const overlayContainer = document.getElementById('overlay-container');
-        const exitARButton = document.getElementById('exit-ar-button');
-        const controlsHint = document.getElementById('controls-hint');
+      import * as THREE from 'three';
+      import { ARButton } from 'three/addons/webxr/ARButton.js';
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-        function showPage(pageName) {
-            Object.values(pages).forEach(p => p.classList.remove('active'));
-            pages[pageName].classList.add('active');
-        }
+      // --- State and Scene variables ---
+      let camera, scene, renderer;
+      let controller;
+      let reticle;
+      let hitTestSource = null, hitTestSourceRequested = false;
+      let model, bimData;
+      let modelPlaced = false;
+      const raycaster = new THREE.Raycaster();
 
-        // --- IndexedDB Management ---
-        const DB_NAME = 'StroyKontrolDB', MODEL_STORE_NAME = 'models', MODEL_KEY = 'user_model';
-        let db;
-        async function initDB() {
-            return new Promise((resolve, reject) => {
-                const request = indexedDB.open(DB_NAME, 1);
-                request.onerror = event => reject("Ошибка IndexedDB: " + event.target.errorCode);
-                request.onsuccess = event => { db = event.target.result; resolve(db); };
-                request.onupgradeneeded = event => {
-                    event.target.result.createObjectStore(MODEL_STORE_NAME, { keyPath: 'id' });
-                };
-            });
-        }
-        async function saveModelToDB(id, blob) {
-            const transaction = db.transaction([MODEL_STORE_NAME], 'readwrite');
-            const store = transaction.objectStore(MODEL_STORE_NAME);
-            store.put({ id: id, data: blob });
-            return new Promise(resolve => transaction.oncomplete = resolve);
-        }
-        async function loadModelFromDB(id) {
-            const transaction = db.transaction([MODEL_STORE_NAME], 'readonly');
-            const store = transaction.objectStore(MODEL_STORE_NAME);
-            const request = store.get(id);
-            return new Promise(resolve => request.onsuccess = () => resolve(request.result ? request.result.data : null));
-        }
-        async function clearDB() {
-            const transaction = db.transaction([MODEL_STORE_NAME], 'readwrite');
-            transaction.objectStore(MODEL_STORE_NAME).clear();
-            return new Promise(resolve => transaction.oncomplete = resolve);
-        }
+      // --- Interaction State ---
+      let tapTimer = null, selectedObject = null, lastTapTime = 0;
+      const LONG_PRESS_THRESHOLD = 500, DOUBLE_TAP_THRESHOLD = 300;
 
-        // --- App Logic ---
-        btnSaveModel.addEventListener('click', async () => {
-            const file = modelInput.files[0];
-            if (!file) { statusPrepare.textContent = '❌ Файл не выбран.'; return; }
-            statusPrepare.textContent = 'Сохранение...';
-            btnSaveModel.disabled = true;
-            modelInput.disabled = true;
-            try {
-                await saveModelToDB(MODEL_KEY, file);
-                statusPrepare.textContent = '✅ Модель сохранена!';
-                setTimeout(() => showPage('offline'), 1500);
-            } catch (error) {
-                console.error(error);
-                statusPrepare.textContent = `❌ Ошибка: ${error.message}`;
-            } finally {
-                btnSaveModel.disabled = false;
-                modelInput.disabled = false;
-            }
+      // --- Materials & Helpers ---
+      const highlightMaterial = new THREE.MeshLambertMaterial({ color: 0x007AFF, emissive: 0x007AFF });
+      const defectMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+      const debugPlaneMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true });
+
+      // --- Data & Debug ---
+      const defectLog = [];
+      const debugPlanes = new Map();
+      const debugPlanesGroup = new THREE.Group();
+
+      init();
+      animate();
+
+      function init() {
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 40);
+        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 2);
+        light.position.set(0.5, 1, 0.25);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        scene.add(debugPlanesGroup);
+        debugPlanesGroup.visible = false;
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true;
+        document.body.appendChild(renderer.domElement);
+        const arButton = ARButton.createButton(renderer, {
+          requiredFeatures: ['hit-test'],
+          optionalFeatures: ['dom-overlay', 'plane-detection'],
+          domOverlay: { root: document.querySelector('.ui-container') }
         });
-        linkReset.addEventListener('click', async (e) => {
-            e.preventDefault();
-            if (confirm('Удалить кэшированную модель?')) {
-                await clearDB();
-                showPage('prepare');
-            }
-        });
+        document.body.appendChild(arButton);
 
-        // --- WebXR Logic ---
-        let camera, scene, renderer, controller, reticle;
-        let hitTestSource = null, hitTestSourceRequested = false;
-        let cachedModelBlob = null, arContainer = null, placementRequested = false;
-        let activeModel = null;
-        let hammertime = null; // ИЗМЕНЕНИЕ: Ссылка на экземпляр Hammer
+        setupUIListeners();
 
-        async function initAR() {
-            arContainer = document.createElement('div');
-            document.body.appendChild(arContainer);
+        controller = renderer.xr.getController(0);
+        controller.addEventListener('selectstart', onSelectStart);
+        controller.addEventListener('selectend', onSelectEnd);
+        scene.add(controller);
 
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-            scene = new THREE.Scene();
+        reticle = new THREE.Mesh( new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial());
+        reticle.matrixAutoUpdate = false;
+        reticle.visible = false;
+        scene.add(reticle);
 
-            const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 3);
-            light.position.set(0.5, 1, 0.25);
-            scene.add(light);
+        window.addEventListener('resize', onWindowResize);
+      }
 
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.xr.enabled = true;
-            arContainer.appendChild(renderer.domElement);
+      function setupUIListeners() {
+        const resolutionSlider = document.getElementById('resolutionSlider');
+        const sliderLabel = document.getElementById('sliderLabel');
+        const sliderContainer = document.getElementById('sliderContainer');
 
-            const sessionInit = {
-                requiredFeatures: ['hit-test', 'anchors', 'dom-overlay'],
-                domOverlay: { root: overlayContainer }
-            };
-
-            const arButton = ARButton.createButton(renderer, sessionInit);
-            arButton.style.display = 'none';
-            document.body.appendChild(arButton);
-            arButton.click();
-
-            controller = renderer.xr.getController(0);
-            controller.addEventListener('select', onSelect);
-            scene.add(controller);
-
-            reticle = new THREE.Mesh(
-                new THREE.RingGeometry(0.1, 0.15, 32).rotateX(-Math.PI / 2),
-                new THREE.MeshBasicMaterial({ color: 0x00aaff, opacity: 0.7, transparent: true })
-            );
-            reticle.matrixAutoUpdate = true;
-            reticle.visible = false;
-            scene.add(reticle);
-
-            exitARButton.style.display = 'block';
-            exitARButton.onclick = async () => { await renderer.xr.getSession()?.end(); };
-
-            renderer.xr.addEventListener('sessionend', () => {
-                 activeModel = null;
-                 controlsHint.style.display = 'none';
-                 exitARButton.style.display = 'none';
-                 if (hammertime) { // ИЗМЕНЕНИЕ: Уничтожаем обработчик жестов
-                    hammertime.destroy();
-                    hammertime = null;
-                 }
-                 if (arContainer) { arContainer.remove(); arContainer = null; }
-                 hitTestSourceRequested = false; hitTestSource = null;
-            });
-
-            setupGestureControls();
-            renderer.setAnimationLoop(animate);
+        function setResolution(scale) {
+          renderer.xr.setFramebufferScaleFactor(scale);
         }
+        setResolution(parseFloat(resolutionSlider.value));
 
-        function onSelect() {
-            if (reticle.visible) {
-                placementRequested = true;
-            }
-        }
-
-        function animate(timestamp, frame) {
-            if (!frame) return;
-
-            const referenceSpace = renderer.xr.getReferenceSpace();
-            const session = frame.session;
-
-            if (hitTestSourceRequested === false) {
-                session.requestReferenceSpace('viewer').then(refSpace => {
-                    session.requestHitTestSource({ space: refSpace }).then(source => hitTestSource = source);
-                });
-                hitTestSourceRequested = true;
-            }
-
-            if (hitTestSource && !activeModel) {
-                const hitTestResults = frame.getHitTestResults(hitTestSource);
-                if (hitTestResults.length) {
-                    const hit = hitTestResults[0];
-                    const pose = hit.getPose(referenceSpace);
-                    reticle.visible = true;
-                    reticle.position.copy(pose.transform.position);
-                    reticle.quaternion.copy(pose.transform.orientation);
-                    debugInfo.textContent = 'Поверхность найдена. Нажмите для установки модели.';
-                } else {
-                    reticle.visible = false;
-                    debugInfo.textContent = 'Поиск поверхности...';
-                }
-            }
-
-            if (placementRequested && reticle.visible) {
-                placementRequested = false;
-
-                if (frame.createAnchor) {
-                    frame.createAnchor(new XRRigidTransform(reticle.position, reticle.quaternion), referenceSpace)
-                        .then(anchor => {
-                            const loader = new GLTFLoader();
-                            const modelUrl = URL.createObjectURL(cachedModelBlob);
-                            loader.load(modelUrl, (gltf) => {
-                                const model = gltf.scene;
-                                const box = new THREE.Box3().setFromObject(model);
-                                const center = box.getCenter(new THREE.Vector3());
-                                const modelWrapper = new THREE.Group();
-                                modelWrapper.add(model);
-                                model.position.set(-center.x, -center.y, -center.z);
-                                modelWrapper.userData.anchor = anchor;
-                                modelWrapper.userData.isManipulated = false; // ИЗМЕНЕНИЕ: Флаг для отслеживания ручного управления
-                                scene.add(modelWrapper);
-                                activeModel = modelWrapper;
-                                reticle.visible = false;
-                                controlsHint.style.display = 'block';
-                                debugInfo.textContent = '';
-                                URL.revokeObjectURL(modelUrl);
-                            });
-                        });
-                }
-            }
-
-            scene.children.forEach(child => {
-                // ИЗМЕНЕНИЕ: Обновляем от якоря, ТОЛЬКО если не было ручного вмешательства
-                if (child.isGroup && child.userData.anchor && !child.userData.isManipulated) {
-                    const pose = frame.getPose(child.userData.anchor.anchorSpace, referenceSpace);
-                    if (pose) {
-                        child.matrix.fromArray(pose.transform.matrix);
-                        child.matrix.decompose(child.position, child.quaternion, child.scale);
-                    }
-                }
-            });
-            renderer.render(scene, camera);
-        }
-
-        function setupGestureControls() {
-            let initialPinchDistance = 0;
-            let initialScale = new THREE.Vector3();
-            let initialRotationY = 0;
-
-            hammertime = new Hammer(renderer.domElement); // ИЗМЕНЕНИЕ: Присваиваем глобальной переменной
-            hammertime.get('pinch').set({ enable: true });
-            hammertime.get('rotate').set({ enable: true });
-            hammertime.get('pan').set({ direction: Hammer.DIRECTION_ALL });
-
-            // ИЗМЕНЕНИЕ: Функция для "отстыковки" модели от якоря
-            function onFirstInteraction() {
-                if (activeModel && !activeModel.userData.isManipulated) {
-                    activeModel.userData.isManipulated = true;
-                    debugInfo.textContent = 'Ручная корректировка. Авто-привязка отключена.';
-                }
-            }
-
-            hammertime.on('panstart', onFirstInteraction);
-            hammertime.on('panmove', (ev) => {
-                if (!activeModel || ev.pointers.length > 1) return;
-
-                const modelPos = activeModel.position;
-                const cameraDirection = camera.getWorldDirection(new THREE.Vector3());
-                const moveSpeed = 0.002 * modelPos.distanceTo(camera.position);
-
-                const right = new THREE.Vector3().crossVectors(cameraDirection, camera.up).normalize();
-                const up = new THREE.Vector3().crossVectors(right, cameraDirection).normalize();
-
-                activeModel.position.add(right.multiplyScalar(-ev.deltaX * moveSpeed));
-                activeModel.position.add(up.multiplyScalar(ev.deltaY * move-speed));
-            });
-
-            hammertime.on('pinchstart', (ev) => {
-                if (!activeModel) return;
-                onFirstInteraction();
-                initialPinchDistance = ev.distance;
-                initialScale.copy(activeModel.scale);
-            });
-            hammertime.on('pinchmove', (ev) => {
-                if (!activeModel) return;
-                const scale = initialScale.x * ev.distance / initialPinchDistance;
-                activeModel.scale.set(scale, scale, scale);
-            });
-
-            hammertime.on('rotatestart', (ev) => {
-                if (!activeModel) return;
-                onFirstInteraction();
-                initialRotationY = activeModel.rotation.y;
-            });
-            hammertime.on('rotatemove', (ev) => {
-                if (!activeModel) return;
-                activeModel.rotation.y = initialRotationY + THREE.MathUtils.degToRad(ev.rotation);
-            });
-        }
-
-        btnStartAR.addEventListener('click', async () => {
-            cachedModelBlob = await loadModelFromDB(MODEL_KEY);
-            if (!cachedModelBlob) {
-                alert('Ошибка: модель не найдена в кэше.');
-                return;
-            }
-            initAR();
+        resolutionSlider.addEventListener('input', () => {
+          const scale = parseFloat(resolutionSlider.value);
+          sliderLabel.textContent = `Качество рендеринга: ${Math.round(scale * 100)}%`;
+          if (!renderer.xr.isPresenting) setResolution(scale);
         });
 
-        window.addEventListener('load', async () => {
-            await initDB();
-            if (await loadModelFromDB(MODEL_KEY)) {
-                showPage('offline');
+        const controlsContainer = document.getElementById('controlsContainer');
+        const toggleModelBtn = document.getElementById('toggleModelBtn');
+        const opacitySlider = document.getElementById('opacitySlider');
+
+        toggleModelBtn.addEventListener('click', () => {
+          if(model) {
+            model.visible = !model.visible;
+            toggleModelBtn.textContent = model.visible ? 'Скрыть модель' : 'Показать модель';
+          }
+        });
+
+        opacitySlider.addEventListener('input', () => {
+          if(model) setModelOpacity(model, parseFloat(opacitySlider.value));
+        });
+
+        const debugToggle = document.getElementById('debugToggle');
+        debugToggle.addEventListener('change', () => {
+          debugPlanesGroup.visible = debugToggle.checked;
+        });
+
+        renderer.xr.addEventListener('sessionstart', () => {
+          sliderContainer.style.display = 'none';
+          if(modelPlaced) controlsContainer.style.display = 'flex';
+        });
+        renderer.xr.addEventListener('sessionend', () => {
+          sliderContainer.style.display = 'block';
+          controlsContainer.style.display = 'none';
+        });
+
+        document.getElementById('zipFileInput').addEventListener('change', (event) => {
+          const file = event.target.files[0];
+          if (file) {
+            document.getElementById('info').textContent = 'Загрузка и обработка файла...';
+            handleZipFile(file);
+          }
+        });
+
+        const defectModal = document.getElementById('defectModal');
+        const capturePhotoBtn = document.getElementById('capturePhotoBtn');
+        const saveDefectBtn = document.getElementById('saveDefectBtn');
+        const cancelDefectBtn = document.getElementById('cancelDefectBtn');
+
+        capturePhotoBtn.addEventListener('click', captureScreenshot);
+
+        saveDefectBtn.addEventListener('click', () => {
+          const defectId = parseInt(document.getElementById('defectIdInput').value);
+          const defect = defectLog.find(d => d.id === defectId);
+          if (defect) {
+            defect.description = document.getElementById('defectDescription').value;
+            defect.type = document.getElementById('defectType').value;
+            defect.criticality = document.getElementById('defectCriticality').value;
+            defect.photo = document.getElementById('photoPreview').src;
+            console.log("Defect saved:", defect);
+          }
+          defectModal.style.display = 'none';
+        });
+
+        cancelDefectBtn.addEventListener('click', () => {
+          const defectId = parseInt(document.getElementById('defectIdInput').value);
+          const defectIndex = defectLog.findIndex(d => d.id === defectId);
+
+          if (defectIndex > -1 && !defectLog[defectIndex].description && !defectLog[defectIndex].photo) {
+            const markerToRemove = scene.getObjectByProperty('defectId', defectId);
+            if (markerToRemove) scene.remove(markerToRemove);
+            defectLog.splice(defectIndex, 1);
+          }
+          defectModal.style.display = 'none';
+        });
+
+        const logModal = document.getElementById('logModal');
+        document.getElementById('showLogBtn').addEventListener('click', showDefectLog);
+        document.getElementById('closeLogBtn').addEventListener('click', () => logModal.style.display = 'none');
+      }
+
+      function onSelectStart() {
+        const currentTime = performance.now();
+
+        tapTimer = setTimeout(() => {
+          handleLongPress();
+          tapTimer = null;
+        }, LONG_PRESS_THRESHOLD);
+
+        if (currentTime - lastTapTime < DOUBLE_TAP_THRESHOLD) {
+          clearTimeout(tapTimer);
+          tapTimer = null;
+          handleDoubleClick();
+        }
+        lastTapTime = currentTime;
+      }
+
+      function onSelectEnd() {
+        if (tapTimer) {
+          clearTimeout(tapTimer);
+          handleSingleClick();
+        }
+      }
+
+      function handleSingleClick() {
+        if (!modelPlaced && reticle.visible && model) {
+          model.position.setFromMatrixPosition(reticle.matrix);
+          scene.add(model);
+          modelPlaced = true;
+          reticle.visible = false;
+          document.getElementById('info').textContent = 'Модель размещена. Взаимодействуйте с ней.';
+          document.querySelector('.file-input-label').style.display = 'none';
+          document.getElementById('controlsContainer').style.display = 'flex';
+        }
+      }
+
+      function handleDoubleClick() {
+        const intersectedObject = getIntersectedObject();
+        if (!intersectedObject) {
+          deselectAll();
+          return;
+        }
+
+        showInfo(intersectedObject.userData.GlobalId);
+
+        if (selectedObject && selectedObject.uuid === intersectedObject.uuid) {
+          deselectAll();
+        } else {
+          deselectAll();
+          selectObject(intersectedObject);
+        }
+      }
+
+      function handleLongPress() {
+        console.log("Long press detected!");
+        raycaster.setFromXRController(controller);
+        const objectsToIntersect = [model, ...Array.from(debugPlanes.values())];
+        const intersects = raycaster.intersectObjects(objectsToIntersect, true);
+
+        if (intersects.length > 0) {
+          const intersectionPoint = intersects[0].point;
+          const intersectedObject = getIntersectedObject(intersects[0].object);
+
+          addDefectMarker(
+            intersectionPoint,
+            intersectedObject ? intersectedObject.userData.GlobalId : null
+          );
+        }
+      }
+
+      function openDefectEditor(defect) {
+        const modal = document.getElementById('defectModal');
+        document.getElementById('defectIdInput').value = defect.id;
+        document.getElementById('defectDescription').value = defect.description || '';
+        document.getElementById('defectType').value = defect.type || 'Конструктивный';
+        document.getElementById('defectCriticality').value = defect.criticality || 'Низкая';
+
+        const preview = document.getElementById('photoPreview');
+        if (defect.photo) {
+          preview.src = defect.photo;
+          preview.style.display = 'block';
+        } else {
+          preview.src = '';
+          preview.style.display = 'none';
+        }
+        modal.style.display = 'flex';
+      }
+
+      function captureScreenshot() {
+        const preview = document.getElementById('photoPreview');
+        document.querySelector('.ui-container').style.visibility = 'hidden';
+
+        renderer.render(scene, camera);
+        const dataURL = renderer.domElement.toDataURL('image/jpeg', 0.8);
+
+        document.querySelector('.ui-container').style.visibility = 'visible';
+
+        preview.src = dataURL;
+        preview.style.display = 'block';
+      }
+
+      function showDefectLog() {
+        const list = document.getElementById('defectLogList');
+        list.innerHTML = '';
+
+        if (defectLog.length === 0) {
+          list.innerHTML = '<li>Журнал пуст</li>';
+        } else {
+          defectLog.forEach(defect => {
+            const li = document.createElement('li');
+            li.dataset.defectId = defect.id;
+            li.innerHTML = `
+              <img src="${defect.photo || 'https://placehold.co/60x60/333/fff?text=Нет фото'}" alt="Фото">
+              <div class="log-item-info">
+                <strong>${defect.type || 'Тип не указан'} (${defect.criticality || 'Критичность не указана'})</strong>
+                <span>${(defect.description || 'Нет описания').substring(0, 50)}...</span>
+              </div>
+            `;
+            li.addEventListener('click', () => {
+              const clickedDefect = defectLog.find(d => d.id === defect.id);
+              if (clickedDefect) openDefectEditor(clickedDefect);
+            });
+            list.appendChild(li);
+          });
+        }
+        document.getElementById('logModal').style.display = 'flex';
+      }
+
+      function addDefectMarker(position, globalId = null) {
+        const markerGeometry = new THREE.SphereGeometry(0.05);
+        const marker = new THREE.Mesh(markerGeometry, defectMaterial);
+        marker.position.copy(position);
+
+        const defect = {
+          id: Date.now(),
+          position: { x: position.x, y: position.y, z: position.z },
+          attachedGlobalId: globalId,
+          description: '', type: '', criticality: '', photo: ''
+        };
+        marker.defectId = defect.id;
+        scene.add(marker);
+        defectLog.push(defect);
+
+        openDefectEditor(defect);
+      }
+
+      function getIntersectedObject(initialObject = null) {
+        if (!model) return null;
+        if (!initialObject) {
+          raycaster.setFromXRController(controller);
+          const intersects = raycaster.intersectObject(model, true);
+          if (intersects.length === 0) return null;
+          initialObject = intersects[0].object;
+        }
+
+        while (initialObject) {
+          if (initialObject.userData.GlobalId) return initialObject;
+          initialObject = initialObject.parent;
+        }
+        return null;
+      }
+
+      function setModelOpacity(obj, opacity) {
+        obj.traverse(child => {
+          if (child.isMesh) {
+            if (!child.userData.originalMaterial) {
+              child.userData.originalMaterial = child.material;
+            }
+            const material = child.userData.originalMaterial;
+            material.transparent = opacity < 1.0;
+            material.opacity = opacity;
+          }
+        });
+      }
+
+      function selectObject(objectToSelect) {
+        selectedObject = objectToSelect;
+        model.traverse(child => {
+          if (child.isMesh) {
+            if (!child.userData.originalMaterial) {
+              child.userData.originalMaterial = child.material;
+            }
+
+            let isSelected = false;
+            let parent = child;
+            while(parent) {
+              if (parent.uuid === objectToSelect.uuid) {
+                isSelected = true;
+                break;
+              }
+              parent = parent.parent;
+            }
+
+            if (isSelected) {
+              child.material = highlightMaterial;
             } else {
-                showPage('prepare');
+              const material = child.userData.originalMaterial;
+              if (material.userData.originalOpacity === undefined) {
+                material.userData.originalOpacity = material.opacity;
+                material.userData.originalTransparent = material.transparent;
+              }
+              material.transparent = true;
+              material.opacity = 0.1;
+              child.material = material;
             }
+          }
         });
+      }
+
+      function deselectAll() {
+        if (!selectedObject) return;
+        selectedObject = null;
+        model.traverse(child => {
+          if (child.isMesh && child.userData.originalMaterial) {
+            child.material = child.userData.originalMaterial;
+
+            const originalMaterial = child.userData.originalMaterial;
+            if (originalMaterial.userData.originalOpacity !== undefined) {
+              originalMaterial.opacity = originalMaterial.userData.originalOpacity;
+              originalMaterial.transparent = originalMaterial.userData.originalTransparent;
+            }
+          }
+        });
+      }
+
+      function showInfo(globalId) {
+        const infoBox = document.getElementById('infoBox');
+        const content = document.getElementById('infoBoxContent');
+        const title = document.getElementById('infoBoxTitle');
+
+        let elementData = null;
+
+        if (typeof bimData === 'object' && bimData !== null) {
+          elementData = bimData[globalId];
+        }
+
+        if (elementData) {
+          title.textContent = elementData.Name || 'Информация об элементе';
+          let html = '';
+          html += `<div class="info-item"><span class="info-item-key">ID</span><span>${globalId}</span></div>`;
+          html += `<div class="info-item"><span class="info-item-key">Тип</span><span>${elementData.IfcType || 'N/A'}</span></div>`;
+
+          if(elementData.Properties) {
+            for (const [key, value] of Object.entries(elementData.Properties)) {
+              let displayValue;
+              if (typeof value === 'object' && value !== null) {
+                displayValue = value.value !== undefined ? value.value : JSON.stringify(value);
+              } else {
+                displayValue = value;
+              }
+              html += `<div class="info-item"><span class="info-item-key">${key}</span><span>${displayValue}</span></div>`;
+            }
+          }
+          content.innerHTML = html;
+        } else {
+          title.textContent = 'Ошибка';
+          content.innerHTML = `<div class="info-item"><span>Информация для элемента с ID ${globalId} не найдена.</span></div>`;
+        }
+        infoBox.style.display = 'block';
+      }
+
+      function centerModel(obj) {
+        const box = new THREE.Box3().setFromObject(obj);
+        const center = box.getCenter(new THREE.Vector3());
+        obj.position.sub(center);
+      }
+
+      function handleZipFile(file) {
+        if (selectedObject) {
+          deselectAll();
+        }
+
+        const loader = new GLTFLoader();
+        JSZip.loadAsync(file).then(function (zip) {
+          let glbFile = null;
+          let jsonFile = null;
+
+          zip.forEach((relativePath, zipEntry) => {
+            if (relativePath.toLowerCase().endsWith('.glb')) {
+              glbFile = zipEntry;
+            } else if (relativePath.toLowerCase().endsWith('_data.json')) {
+              jsonFile = zipEntry;
+            }
+          });
+
+          if (glbFile && jsonFile) {
+            glbFile.async('arraybuffer').then(function (glbData) {
+              const blob = new Blob([glbData]);
+              const url = URL.createObjectURL(blob);
+
+              loader.load(url, function (gltf) {
+                if (model) {
+                  scene.remove(model);
+                }
+                model = gltf.scene;
+
+                gltf.parser.json.nodes.forEach((node) => {
+                  const association = gltf.parser.associations.get(node);
+                  if (node.extras && node.extras.GlobalId && association) {
+                    const mesh = model.getObjectByProperty('uuid', association.uuid);
+                    if (mesh) {
+                      mesh.userData.GlobalId = node.extras.GlobalId;
+                    }
+                  }
+                });
+
+                centerModel(model);
+
+                modelPlaced = false;
+                document.getElementById('info').textContent = 'Модель готова. Войдите в AR для размещения.';
+
+              }, undefined, (error) => console.error('Ошибка при загрузке GLB модели:', error));
+            });
+
+            jsonFile.async('string').then(function (jsonData) {
+              try {
+                bimData = JSON.parse(jsonData);
+              } catch (e) {
+                console.error("Ошибка парсинга JSON:", e);
+                bimData = null;
+              }
+            });
+          } else {
+            alert("Ошибка: .igj архив должен содержать один .glb файл и один _data.json файл.");
+          }
+        });
+      }
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      function animate() {
+        renderer.setAnimationLoop(render);
+      }
+
+      function render(timestamp, frame) {
+        if (frame) {
+          const referenceSpace = renderer.xr.getReferenceSpace();
+          const session = renderer.xr.getSession();
+
+          if (debugPlanesGroup.visible && frame.detectedPlanes) {
+            const detectedPlanes = frame.detectedPlanes;
+            const currentPlaneIds = new Set();
+
+            detectedPlanes.forEach(plane => {
+              currentPlaneIds.add(plane);
+              let planeMesh = debugPlanes.get(plane);
+
+              if (!planeMesh) {
+                const pose = frame.getPose(plane.planeSpace, referenceSpace);
+                if (pose) {
+                  const planeGeometry = new THREE.PlaneGeometry(1, 1);
+                  planeMesh = new THREE.Mesh(planeGeometry, debugPlaneMaterial);
+
+                  debugPlanes.set(plane, planeMesh);
+                  debugPlanesGroup.add(planeMesh);
+                }
+              }
+
+              if(planeMesh) {
+                const pose = frame.getPose(plane.planeSpace, referenceSpace);
+                if (pose) {
+                  planeMesh.position.copy(pose.transform.position);
+                  planeMesh.quaternion.copy(pose.transform.orientation);
+                }
+              }
+            });
+
+            debugPlanes.forEach((mesh, plane) => {
+              if (!currentPlaneIds.has(plane)) {
+                debugPlanesGroup.remove(mesh);
+                debugPlanes.delete(plane);
+              }
+            });
+          }
+
+          if (!modelPlaced) {
+            if (hitTestSourceRequested === false) {
+              session.requestReferenceSpace('viewer').then(function (referenceSpace) {
+                session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
+                  hitTestSource = source;
+                });
+              });
+              session.addEventListener('end', () => {
+                hitTestSourceRequested = false;
+                hitTestSource = null;
+              });
+              hitTestSourceRequested = true;
+            }
+
+            if (hitTestSource) {
+              const hitTestResults = frame.getHitTestResults(hitTestSource);
+              if (hitTestResults.length) {
+                const hit = hitTestResults[0];
+                reticle.visible = true;
+                reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+              } else {
+                reticle.visible = false;
+              }
+            }
+          }
+        }
+        renderer.render(scene, camera);
+      }
     </script>
-    <script src="./js/libs/hammer.min.js"></script>
-</body>
+  </body>
 </html>
 

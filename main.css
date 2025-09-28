@@ -1,0 +1,347 @@
+/* General Body Styles */
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #f0f0f0;
+    overflow: hidden; /* Prevent scrollbars */
+}
+
+/* --- UI Overlay Container --- */
+/* This wrapper ensures all UI elements are in a separate stacking context */
+.ui-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1000;
+    pointer-events: none; /* Allows clicks to go "through" to the canvas unless on a button */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+/* Re-enable pointer events for interactive elements */
+.ui-container > * {
+    pointer-events: auto;
+}
+
+/* --- Top Status Info --- */
+#info {
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 8px 15px;
+    border-radius: 20px;
+    font-size: 14px;
+    margin-bottom: 15px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+/* --- File Input Styling --- */
+/* We hide the default input and style a label instead */
+.file-input-label {
+    background-color: #333;
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+    border: 1px solid #444;
+}
+
+.file-input-label:hover {
+    background-color: #444;
+}
+
+#zipFileInput {
+    display: none; /* Hide the actual input element */
+}
+
+
+/* --- BIM Info Box --- */
+#infoBox {
+    display: none;
+    position: absolute; /* Positioned relative to the body */
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 90%;
+    max-width: 450px;
+    background-color: rgba(25, 25, 25, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+    z-index: 1001; /* Must be higher than the container */
+    overflow: hidden;
+}
+
+#infoBoxHeader {
+    padding: 10px 15px;
+    background-color: rgba(0, 0, 0, 0.2);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#infoBoxTitle {
+    font-weight: 600;
+}
+
+#infoBoxClose {
+    cursor: pointer;
+    font-size: 24px;
+    font-weight: 300;
+    line-height: 1;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+}
+
+#infoBoxClose:hover {
+    opacity: 1;
+}
+
+#infoBoxContent {
+    padding: 15px;
+    max-height: 200px;
+    overflow-y: auto;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+/* Styling for key-value pairs inside the info box */
+.info-item {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.info-item-key {
+    font-weight: 500;
+    opacity: 0.7;
+}
+
+/* --- Resolution Slider --- */
+.slider-container {
+    /* display: block; /* Make slider visible by default */
+    position: absolute;
+    bottom: 250px; /* Position it above the infoBox */
+    left: 50%;
+    transform: translateX(-50%);
+    width: 90%;
+    max-width: 450px;
+    background-color: rgba(25, 25, 25, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 15px;
+    box-sizing: border-box;
+    z-index: 1002;
+}
+
+.slider-container label {
+    display: block;
+    margin-bottom: 10px;
+    font-size: 14px;
+    text-align: center;
+}
+
+#resolutionSlider {
+    width: 100%;
+    cursor: pointer;
+}
+
+/* --- Model Controls --- */
+.controls-container {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    z-index: 1001;
+    background-color: rgba(25, 25, 25, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 15px;
+    box-sizing: border-box;
+    display: none; /* Hidden until model is placed */
+}
+
+.control-button {
+    background-color: #333;
+    color: #fff;
+    padding: 10px 15px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+    border: 1px solid #444;
+    text-align: center;
+}
+
+.control-button:hover {
+    background-color: #444;
+}
+
+.opacity-slider-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.opacity-slider-group label {
+    font-size: 14px;
+    text-align: center;
+    opacity: 0.8;
+}
+
+#opacitySlider {
+    width: 150px;
+}
+
+/* --- Debug Controls --- */
+.debug-controls {
+    margin-top: 10px;
+    padding-top: 15px;
+    border-top: 1px solid #444;
+}
+
+.debug-controls label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+/* --- Defect & Log Modals --- */
+.modal {
+    display: none;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 2000;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    width: 90%;
+    max-width: 500px;
+    background-color: rgba(40, 40, 40, 0.8);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+    padding: 15px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.modal-body {
+    padding: 20px;
+    max-height: 60vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.modal-footer {
+    padding: 15px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+/* Form elements */
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+.form-group input,
+.form-group textarea,
+.form-group select {
+    width: 100%;
+    background-color: #333;
+    border: 1px solid #555;
+    border-radius: 8px;
+    padding: 10px;
+    color: #fff;
+    font-size: 16px;
+    box-sizing: border-box;
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+#photoPreview {
+    max-width: 100%;
+    border-radius: 8px;
+    margin-top: 10px;
+    display: none;
+}
+
+/* Defect Log List */
+#defectLogList {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#defectLogList li {
+    background-color: rgba(255, 255, 255, 0.05);
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    transition: background-color 0.2s ease;
+}
+
+#defectLogList li:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+#defectLogList img {
+    width: 60px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+#defectLogList .log-item-info {
+    flex-grow: 1;
+}
+
+#defectLogList .log-item-info strong {
+    display: block;
+    margin-bottom: 5px;
+}
