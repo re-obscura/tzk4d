@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>СтройКонтроль WebXR</title>
+    <meta name="theme-color" content="#3367D6">
+    <style>
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f0f0f0; }
+        .page { display: none; padding: 20px; text-align: center; }
+        .page.active { display: block; }
+        h1 { color: #333; }
+        p { color: #555; margin-bottom: 20px; }
+        button, input { font-size: 16px; padding: 12px 20px; margin: 5px; border-radius: 8px; border: 1px solid #ccc; cursor: pointer; }
+        button { background-color: #007bff; color: white; border-color: #007bff; }
+        button:disabled { background-color: #aaa; cursor: not-allowed; }
+        #status { margin-top: 20px; font-style: italic; color: #888; }
+        #overlay-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 10; pointer-events: none; }
+        #debug-info { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.7); color: white; padding: 10px; border-radius: 5px; font-family: monospace; white-space: pre; }
+        #exit-ar-button { display: none; position: absolute; top: 20px; right: 20px; z-index: 100; pointer-events: all; }
+        #controls-hint { display: none; width: calc(100% - 40px); position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.7); color: white; padding: 10px; border-radius: 5px; text-align: center; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div id="page-prepare" class="page active">
+        <h1>Этап 1: Подготовка</h1>
+        <p>Выберите .GLB модель с вашего устройства для сохранения в локальный кэш.</p>
+        <input type="file" id="model-input" accept=".glb, .gltf">
+        <button id="btn-save-model">Сохранить модель в кэш</button>
+        <div id="status-prepare"></div>
+    </div>
+
+    <div id="page-offline" class="page">
+        <h1>Этап 2: Работа на объекте</h1>
+        <p>Модель загружена. Вы можете начать AR-инспекцию.</p>
+        <button id="btn-start-ar">Начать AR-сессию</button>
+        <p style="font-size: 12px; margin-top: 30px;">
+            <a href="#" id="link-reset">Сбросить кэш и выбрать другую модель</a>
+        </p>
+    </div>
+
+    <div id="overlay-container">
+        <div id="debug-info"></div>
+        <div id="controls-hint">
+            <b>Управление:</b><br/>
+            Движение: 1 палец. Вращение/Масштаб: 2 пальца.
+        </div>
+        <button id="exit-ar-button">Выйти из AR</button>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "./js/three.module.js",
+                "three/addons/": "./js/addons/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { ARButton } from 'three/addons/webxr/ARButton.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+        // --- UI Elements ---
+        const pages = { prepare: document.getElementById('page-prepare'), offline: document.getElementById('page-offline') };
+        const statusPrepare = document.getElementById('status-prepare');
+        const modelInput = document.getElementById('model-input');
+        const btnSaveModel = document.getElementById('btn-save-model');
+        const btnStartAR = document.getElementById('btn-start-ar');
+        const linkReset = document.getElementById('link-reset');
+        const debugInfo = document.getElementById('debug-info');
+        const overlayContainer = document.getElementById('overlay-container');
+        const exitARButton = document.getElementById('exit-ar-button');
+        const controlsHint = document.getElementById('controls-hint');
+
+        function showPage(pageName) {
+            Object.values(pages).forEach(p => p.classList.remove('active'));
+            pages[pageName].classList.add('active');
+        }
+
+        // --- IndexedDB Management ---
+        const DB_NAME = 'StroyKontrolDB', MODEL_STORE_NAME = 'models', MODEL_KEY = 'user_model';
+        let db;
+        async function initDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, 1);
+                request.onerror = event => reject("Ошибка IndexedDB: " + event.target.errorCode);
+                request.onsuccess = event => { db = event.target.result; resolve(db); };
+                request.onupgradeneeded = event => {
+                    event.target.result.createObjectStore(MODEL_STORE_NAME, { keyPath: 'id' });
+                };
+            });
+        }
+        async function saveModelToDB(id, blob) {
+            const transaction = db.transaction([MODEL_STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(MODEL_STORE_NAME);
+            store.put({ id: id, data: blob });
+            return new Promise(resolve => transaction.oncomplete = resolve);
+        }
+        async function loadModelFromDB(id) {
+            const transaction = db.transaction([MODEL_STORE_NAME], 'readonly');
+            const store = transaction.objectStore(MODEL_STORE_NAME);
+            const request = store.get(id);
+            return new Promise(resolve => request.onsuccess = () => resolve(request.result ? request.result.data : null));
+        }
+        async function clearDB() {
+            const transaction = db.transaction([MODEL_STORE_NAME], 'readwrite');
+            transaction.objectStore(MODEL_STORE_NAME).clear();
+            return new Promise(resolve => transaction.oncomplete = resolve);
+        }
+
+        // --- App Logic ---
+        btnSaveModel.addEventListener('click', async () => {
+            const file = modelInput.files[0];
+            if (!file) { statusPrepare.textContent = '❌ Файл не выбран.'; return; }
+            statusPrepare.textContent = 'Сохранение...';
+            btnSaveModel.disabled = true;
+            modelInput.disabled = true;
+            try {
+                await saveModelToDB(MODEL_KEY, file);
+                statusPrepare.textContent = '✅ Модель сохранена!';
+                setTimeout(() => showPage('offline'), 1500);
+            } catch (error) {
+                console.error(error);
+                statusPrepare.textContent = `❌ Ошибка: ${error.message}`;
+            } finally {
+                btnSaveModel.disabled = false;
+                modelInput.disabled = false;
+            }
+        });
+        linkReset.addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (confirm('Удалить кэшированную модель?')) {
+                await clearDB();
+                showPage('prepare');
+            }
+        });
+
+        // --- WebXR Logic ---
+        let camera, scene, renderer, controller, reticle;
+        let hitTestSource = null, hitTestSourceRequested = false;
+        let cachedModelBlob = null, arContainer = null, placementRequested = false;
+        let activeModel = null;
+        let hammertime = null; // ИЗМЕНЕНИЕ: Ссылка на экземпляр Hammer
+
+        async function initAR() {
+            arContainer = document.createElement('div');
+            document.body.appendChild(arContainer);
+
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+            scene = new THREE.Scene();
+
+            const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 3);
+            light.position.set(0.5, 1, 0.25);
+            scene.add(light);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            arContainer.appendChild(renderer.domElement);
+
+            const sessionInit = {
+                requiredFeatures: ['hit-test', 'anchors', 'dom-overlay'],
+                domOverlay: { root: overlayContainer }
+            };
+
+            const arButton = ARButton.createButton(renderer, sessionInit);
+            arButton.style.display = 'none';
+            document.body.appendChild(arButton);
+            arButton.click();
+
+            controller = renderer.xr.getController(0);
+            controller.addEventListener('select', onSelect);
+            scene.add(controller);
+
+            reticle = new THREE.Mesh(
+                new THREE.RingGeometry(0.1, 0.15, 32).rotateX(-Math.PI / 2),
+                new THREE.MeshBasicMaterial({ color: 0x00aaff, opacity: 0.7, transparent: true })
+            );
+            reticle.matrixAutoUpdate = true;
+            reticle.visible = false;
+            scene.add(reticle);
+
+            exitARButton.style.display = 'block';
+            exitARButton.onclick = async () => { await renderer.xr.getSession()?.end(); };
+
+            renderer.xr.addEventListener('sessionend', () => {
+                 activeModel = null;
+                 controlsHint.style.display = 'none';
+                 exitARButton.style.display = 'none';
+                 if (hammertime) { // ИЗМЕНЕНИЕ: Уничтожаем обработчик жестов
+                    hammertime.destroy();
+                    hammertime = null;
+                 }
+                 if (arContainer) { arContainer.remove(); arContainer = null; }
+                 hitTestSourceRequested = false; hitTestSource = null;
+            });
+
+            setupGestureControls();
+            renderer.setAnimationLoop(animate);
+        }
+
+        function onSelect() {
+            if (reticle.visible) {
+                placementRequested = true;
+            }
+        }
+
+        function animate(timestamp, frame) {
+            if (!frame) return;
+
+            const referenceSpace = renderer.xr.getReferenceSpace();
+            const session = frame.session;
+
+            if (hitTestSourceRequested === false) {
+                session.requestReferenceSpace('viewer').then(refSpace => {
+                    session.requestHitTestSource({ space: refSpace }).then(source => hitTestSource = source);
+                });
+                hitTestSourceRequested = true;
+            }
+
+            if (hitTestSource && !activeModel) {
+                const hitTestResults = frame.getHitTestResults(hitTestSource);
+                if (hitTestResults.length) {
+                    const hit = hitTestResults[0];
+                    const pose = hit.getPose(referenceSpace);
+                    reticle.visible = true;
+                    reticle.position.copy(pose.transform.position);
+                    reticle.quaternion.copy(pose.transform.orientation);
+                    debugInfo.textContent = 'Поверхность найдена. Нажмите для установки модели.';
+                } else {
+                    reticle.visible = false;
+                    debugInfo.textContent = 'Поиск поверхности...';
+                }
+            }
+
+            if (placementRequested && reticle.visible) {
+                placementRequested = false;
+
+                if (frame.createAnchor) {
+                    frame.createAnchor(new XRRigidTransform(reticle.position, reticle.quaternion), referenceSpace)
+                        .then(anchor => {
+                            const loader = new GLTFLoader();
+                            const modelUrl = URL.createObjectURL(cachedModelBlob);
+                            loader.load(modelUrl, (gltf) => {
+                                const model = gltf.scene;
+                                const box = new THREE.Box3().setFromObject(model);
+                                const center = box.getCenter(new THREE.Vector3());
+                                const modelWrapper = new THREE.Group();
+                                modelWrapper.add(model);
+                                model.position.set(-center.x, -center.y, -center.z);
+                                modelWrapper.userData.anchor = anchor;
+                                modelWrapper.userData.isManipulated = false; // ИЗМЕНЕНИЕ: Флаг для отслеживания ручного управления
+                                scene.add(modelWrapper);
+                                activeModel = modelWrapper;
+                                reticle.visible = false;
+                                controlsHint.style.display = 'block';
+                                debugInfo.textContent = '';
+                                URL.revokeObjectURL(modelUrl);
+                            });
+                        });
+                }
+            }
+
+            scene.children.forEach(child => {
+                // ИЗМЕНЕНИЕ: Обновляем от якоря, ТОЛЬКО если не было ручного вмешательства
+                if (child.isGroup && child.userData.anchor && !child.userData.isManipulated) {
+                    const pose = frame.getPose(child.userData.anchor.anchorSpace, referenceSpace);
+                    if (pose) {
+                        child.matrix.fromArray(pose.transform.matrix);
+                        child.matrix.decompose(child.position, child.quaternion, child.scale);
+                    }
+                }
+            });
+            renderer.render(scene, camera);
+        }
+
+        function setupGestureControls() {
+            let initialPinchDistance = 0;
+            let initialScale = new THREE.Vector3();
+            let initialRotationY = 0;
+
+            hammertime = new Hammer(renderer.domElement); // ИЗМЕНЕНИЕ: Присваиваем глобальной переменной
+            hammertime.get('pinch').set({ enable: true });
+            hammertime.get('rotate').set({ enable: true });
+            hammertime.get('pan').set({ direction: Hammer.DIRECTION_ALL });
+
+            // ИЗМЕНЕНИЕ: Функция для "отстыковки" модели от якоря
+            function onFirstInteraction() {
+                if (activeModel && !activeModel.userData.isManipulated) {
+                    activeModel.userData.isManipulated = true;
+                    debugInfo.textContent = 'Ручная корректировка. Авто-привязка отключена.';
+                }
+            }
+
+            hammertime.on('panstart', onFirstInteraction);
+            hammertime.on('panmove', (ev) => {
+                if (!activeModel || ev.pointers.length > 1) return;
+
+                const modelPos = activeModel.position;
+                const cameraDirection = camera.getWorldDirection(new THREE.Vector3());
+                const moveSpeed = 0.002 * modelPos.distanceTo(camera.position);
+
+                const right = new THREE.Vector3().crossVectors(cameraDirection, camera.up).normalize();
+                const up = new THREE.Vector3().crossVectors(right, cameraDirection).normalize();
+
+                activeModel.position.add(right.multiplyScalar(-ev.deltaX * moveSpeed));
+                activeModel.position.add(up.multiplyScalar(ev.deltaY * move-speed));
+            });
+
+            hammertime.on('pinchstart', (ev) => {
+                if (!activeModel) return;
+                onFirstInteraction();
+                initialPinchDistance = ev.distance;
+                initialScale.copy(activeModel.scale);
+            });
+            hammertime.on('pinchmove', (ev) => {
+                if (!activeModel) return;
+                const scale = initialScale.x * ev.distance / initialPinchDistance;
+                activeModel.scale.set(scale, scale, scale);
+            });
+
+            hammertime.on('rotatestart', (ev) => {
+                if (!activeModel) return;
+                onFirstInteraction();
+                initialRotationY = activeModel.rotation.y;
+            });
+            hammertime.on('rotatemove', (ev) => {
+                if (!activeModel) return;
+                activeModel.rotation.y = initialRotationY + THREE.MathUtils.degToRad(ev.rotation);
+            });
+        }
+
+        btnStartAR.addEventListener('click', async () => {
+            cachedModelBlob = await loadModelFromDB(MODEL_KEY);
+            if (!cachedModelBlob) {
+                alert('Ошибка: модель не найдена в кэше.');
+                return;
+            }
+            initAR();
+        });
+
+        window.addEventListener('load', async () => {
+            await initDB();
+            if (await loadModelFromDB(MODEL_KEY)) {
+                showPage('offline');
+            } else {
+                showPage('prepare');
+            }
+        });
+    </script>
+    <script src="./js/libs/hammer.min.js"></script>
+</body>
+</html>
+
