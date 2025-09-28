@@ -1,32 +1,81 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
   <head>
     <title>СтройКонтроль AR</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <link type="text/css" rel="stylesheet" href="main.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Icon Library (Lucide) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
   </head>
   <body>
 
     <div class="ui-container">
-      <div id="info">Загрузите .igj файл для начала работы</div>
 
-      <label for="zipFileInput" class="file-input-label">Выбрать проект (.igj)</label>
-      <input type="file" id="zipFileInput" accept=".igj">
+      <!-- ===== LOBBY SCREEN (Visible on Start) ===== -->
+      <div id="lobbyScreen" class="screen active">
+        <header class="lobby-header">
+          <h1>СтройКонтроль AR</h1>
+          <p>Выберите проект для начала инспекции</p>
+        </header>
 
-      <div class="controls-container" id="controlsContainer">
-        <button id="toggleModelBtn" class="control-button">Скрыть модель</button>
-        <button id="showLogBtn" class="control-button">Журнал дефектов</button>
-        <div class="opacity-slider-group">
-          <label for="opacitySlider">Прозрачность</label>
-          <input type="range" min="0.0" max="1.0" value="1.0" step="0.05" id="opacitySlider">
+        <main class="project-carousel-container">
+          <div class="project-carousel">
+            <div class="project-card add-new">
+              <label for="zipFileInput" class="add-new-label">
+                <i data-lucide="plus-circle"></i>
+                <span>Загрузить проект</span>
+              </label>
+              <input type="file" id="zipFileInput" accept=".igj" style="display: none;">
+            </div>
+          </div>
+        </main>
+
+        <footer class="lobby-footer">
+          <button id="startArButton" class="cta-button" disabled>
+            <i data-lucide="scan"></i>
+            <span>Начать AR сессию</span>
+          </button>
+        </footer>
+      </div>
+
+      <!-- ===== AR SCREEN (Hidden on Start) ===== -->
+      <div id="arScreen" class="screen">
+        <div id="infoBar">
+          <span id="projectName">Имя проекта</span>
+          <div class="separator"></div>
+          <span id="statusText">Поиск поверхности...</span>
         </div>
-        <div class="debug-controls">
-          <label>
-            <input type="checkbox" id="debugToggle">
-            Режим отладки
-          </label>
+
+        <div id="toolbar">
+          <button class="tool-button" id="toggleVisibilityBtn" title="Скрыть/Показать модель"><i data-lucide="eye"></i></button>
+          <button class="tool-button" id="addDefectBtn" title="Добавить дефект (долгий тап)"><i data-lucide="alert-triangle"></i></button>
+          <button class="tool-button" id="showLogBtn" title="Журнал дефектов"><i data-lucide="book-open"></i></button>
+          <button class="tool-button" id="settingsBtn" title="Настройки"><i data-lucide="sliders-horizontal"></i></button>
+        </div>
+
+        <div class="settings-panel" id="settingsPanel">
+          <div class="panel-header">
+            <span>Настройки</span>
+            <button id="closeSettingsBtn"><i data-lucide="x"></i></button>
+          </div>
+          <div class="panel-body">
+            <div class="setting-item">
+              <label for="opacitySlider">Прозрачность модели</label>
+              <input type="range" min="0.0" max="1.0" value="1.0" step="0.05" id="opacitySlider">
+            </div>
+            <div class="setting-item">
+              <label for="resolutionSlider">Качество рендеринга</label>
+              <input type="range" min="0.1" max="1.0" value="0.7" step="0.05" id="resolutionSlider">
+            </div>
+             <div class="setting-item debug-controls">
+              <label>
+                <span>Режим отладки</span>
+                <input type="checkbox" id="debugToggle">
+              </label>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -38,18 +87,13 @@
         <div id="infoBoxContent"></div>
       </div>
 
-      <div class="slider-container" id="sliderContainer">
-        <label for="resolutionSlider" id="sliderLabel">Качество рендеринга: 70%</label>
-        <input type="range" min="0.1" max="1.0" value="0.7" step="0.05" id="resolutionSlider">
-      </div>
-
       <div id="defectModal" class="modal">
         <div class="modal-content">
           <div class="modal-header">Карточка дефекта</div>
           <div class="modal-body">
             <input type="hidden" id="defectIdInput">
             <div class="form-group">
-              <label id="capturePhotoBtn" for="photoInput" class="control-button">Прикрепить фото</label>
+              <button id="capturePhotoBtn" class="control-button">Сделать фото</button>
               <input type="file" id="photoInput" accept="image/*" capture style="display: none;">
               <img id="photoPreview" src="" alt="Фото дефекта">
             </div>
@@ -87,26 +131,25 @@
         <div class="modal-content">
           <div class="modal-header">Журнал дефектов</div>
           <div class="modal-body">
-            <ul id="defectLogList"></ul>
+            <ul id="defectLogList">
+            </ul>
           </div>
           <div class="modal-footer">
             <button id="closeLogBtn" class="control-button">Закрыть</button>
           </div>
         </div>
       </div>
-    </div>
 
+    </div>
 
     <script type="importmap">
       {
         "imports": {
           "three": "./js/three.module.js",
-          "three/addons/": "./js/addons/",
-          "three/addons/geometries/DecalGeometry.js": "./js/addons/geometries/DecalGeometry.js"
+          "three/addons/": "./js/addons/"
         }
       }
     </script>
-
     <script type="module" src="./js/app/main.js"></script>
 
   </body>

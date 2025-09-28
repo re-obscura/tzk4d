@@ -11,7 +11,7 @@ let reticle;
 let hitTestSource = null, hitTestSourceRequested = false;
 let model, bimData;
 let modelPlaced = false;
-let screenshotCallback = null;
+let arButton;
 
 // --- Debug ---
 const debugPlanes = new Map();
@@ -30,10 +30,6 @@ export const setModelPlaced = (value) => { modelPlaced = value; };
 export const getModel = () => model;
 export const getBimData = () => bimData;
 
-// --- Screenshot Requester ---
-export function requestScreenshot(callback) {
-    screenshotCallback = callback;
-}
 
 init();
 animate();
@@ -53,14 +49,15 @@ function init() {
     renderer.xr.enabled = true;
     document.body.appendChild(renderer.domElement);
 
-    const arButton = ARButton.createButton(renderer, {
+    arButton = ARButton.createButton(renderer, {
         requiredFeatures: ['hit-test'],
         optionalFeatures: ['dom-overlay', 'plane-detection'],
         domOverlay: { root: document.querySelector('.ui-container') }
     });
+    arButton.style.display = 'none';
     document.body.appendChild(arButton);
 
-    setupUIListeners(renderer, loadFile);
+    setupUIListeners(renderer, loadFile, () => arButton.click());
 
     controller = renderer.xr.getController(0);
     controller.addEventListener('selectstart', onSelectStart);
@@ -76,7 +73,7 @@ function init() {
 }
 
 async function loadFile(file) {
-    document.getElementById('info').textContent = 'Загрузка и обработка файла...';
+    document.getElementById('statusText').textContent = 'Загрузка модели...';
     try {
         const loadedData = await handleZipFile(file);
 
@@ -88,7 +85,6 @@ async function loadFile(file) {
         bimData = loadedData.bimData;
 
         setModelPlaced(false);
-        document.getElementById('info').textContent = 'Модель готова. Войдите в AR для размещения.';
     } catch (error) {
         console.error("Failed to load file:", error);
         alert("Ошибка при загрузке файла. Проверьте консоль для деталей.");
@@ -114,38 +110,38 @@ function render(timestamp, frame) {
 
         if (debugPlanesGroup.visible && frame.detectedPlanes) {
             const detectedPlanes = frame.detectedPlanes;
-            const currentPlaneIds = new Set();
+                        const currentPlaneIds = new Set();
 
-            detectedPlanes.forEach(plane => {
-                currentPlaneIds.add(plane);
-                let planeMesh = debugPlanes.get(plane);
+                        detectedPlanes.forEach(plane => {
+                            currentPlaneIds.add(plane);
+                            let planeMesh = debugPlanes.get(plane);
 
-                if (!planeMesh) {
-                    const pose = frame.getPose(plane.planeSpace, referenceSpace);
-                    if (pose) {
-                        const planeGeometry = new THREE.PlaneGeometry(1, 1);
-                        planeMesh = new THREE.Mesh(planeGeometry, new THREE.MeshBasicMaterial({ color: 0xffff00, wireframe: true }));
+                            if (!planeMesh) {
+                                const pose = frame.getPose(plane.planeSpace, referenceSpace);
+                                if (pose) {
+                                    const planeGeometry = new THREE.PlaneGeometry(1, 1);
+                                    planeMesh = new THREE.Mesh(planeGeometry, debugPlaneMaterial);
 
-                        debugPlanes.set(plane, planeMesh);
-                        debugPlanesGroup.add(planeMesh);
-                    }
-                }
+                                    debugPlanes.set(plane, planeMesh);
+                                    debugPlanesGroup.add(planeMesh);
+                                }
+                            }
 
-                if(planeMesh) {
-                    const pose = frame.getPose(plane.planeSpace, referenceSpace);
-                    if (pose) {
-                        planeMesh.position.copy(pose.transform.position);
-                        planeMesh.quaternion.copy(pose.transform.orientation);
-                    }
-                }
-            });
+                            if(planeMesh) {
+                                const pose = frame.getPose(plane.planeSpace, referenceSpace);
+                                if (pose) {
+                                    planeMesh.position.copy(pose.transform.position);
+                                    planeMesh.quaternion.copy(pose.transform.orientation);
+                                }
+                            }
+                        });
 
-            debugPlanes.forEach((mesh, plane) => {
-                if (!currentPlaneIds.has(plane)) {
-                    debugPlanesGroup.remove(mesh);
-                    debugPlanes.delete(plane);
-                }
-            });
+                        debugPlanes.forEach((mesh, plane) => {
+                            if (!currentPlaneIds.has(plane)) {
+                                debugPlanesGroup.remove(mesh);
+                                debugPlanes.delete(plane);
+                            }
+                        });
         }
 
         if (!modelPlaced) {
@@ -176,11 +172,5 @@ function render(timestamp, frame) {
     }
 
     renderer.render(scene, camera);
-
-    if (screenshotCallback) {
-        const dataURL = renderer.domElement.toDataURL('image/jpeg', 0.8);
-        screenshotCallback(dataURL);
-        screenshotCallback = null;
-    }
 }
 

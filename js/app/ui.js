@@ -1,32 +1,87 @@
 import { setModelOpacity, applyDecal } from './model.js';
 import { defectLog } from './interactions.js';
-import { getScene, getRenderer, getModel, getBimData, requestScreenshot } from './main.js';
+import { getScene, getModel, getBimData } from './main.js';
 
-export function setupUIListeners(renderer, loadFileCallback) {
+// This is the fully integrated UI management script
+export function setupUIListeners(renderer, loadFileCallback, startARCallback) {
+
+    // --- DOM Elements ---
+    const lobbyScreen = document.getElementById('lobbyScreen');
+    const arScreen = document.getElementById('arScreen');
+    const startArButton = document.getElementById('startArButton');
+    const zipFileInput = document.getElementById('zipFileInput');
+    const projectCarousel = document.querySelector('.project-carousel');
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsPanel = document.getElementById('settingsPanel');
+    const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+    const projectNameInfo = document.getElementById('projectName');
+    const statusTextInfo = document.getElementById('statusText');
+    const toggleVisibilityBtn = document.getElementById('toggleVisibilityBtn');
+    const opacitySlider = document.getElementById('opacitySlider');
     const resolutionSlider = document.getElementById('resolutionSlider');
     const sliderLabel = document.getElementById('sliderLabel');
-    const sliderContainer = document.getElementById('sliderContainer');
+    const debugToggle = document.getElementById('debugToggle');
+    const showLogBtn = document.getElementById('showLogBtn');
+    // Modals
+    const defectModal = document.getElementById('defectModal');
+    const logModal = document.getElementById('logModal');
+    const photoInput = document.getElementById('photoInput');
+    const capturePhotoBtn = document.getElementById('capturePhotoBtn');
+    const saveDefectBtn = document.getElementById('saveDefectBtn');
+    const cancelDefectBtn = document.getElementById('cancelDefectBtn');
+    const closeLogBtn = document.getElementById('closeLogBtn');
 
-    function setResolution(scale) {
-        renderer.xr.setFramebufferScaleFactor(scale);
-    }
-    setResolution(parseFloat(resolutionSlider.value));
+    let projects = [];
+    let selectedProject = null;
 
-    resolutionSlider.addEventListener('input', () => {
-        const scale = parseFloat(resolutionSlider.value);
-        sliderLabel.textContent = `Качество рендеринга: ${Math.round(scale * 100)}%`;
-        if (!renderer.xr.isPresenting) setResolution(scale);
+    // --- Initial State ---
+    lucide.createIcons();
+
+    // --- Event Listeners ---
+    zipFileInput.addEventListener('change', (event) => {
+        const file = event.target.files[0];
+        if (file) {
+            const project = {
+                id: Date.now(),
+                name: file.name.replace('.igj', '').replace(/_/g, ' '),
+                file: file
+            };
+            projects.push(project);
+            renderCarousel();
+            selectProject(project.id);
+        }
     });
 
-    const controlsContainer = document.getElementById('controlsContainer');
-    const toggleModelBtn = document.getElementById('toggleModelBtn');
-    const opacitySlider = document.getElementById('opacitySlider');
+    startArButton.addEventListener('click', () => {
+        if (selectedProject) {
+            startArButton.disabled = true;
+            startArButton.querySelector('span').textContent = 'Загрузка...';
 
-    toggleModelBtn.addEventListener('click', () => {
+            loadFileCallback(selectedProject.file).then(() => {
+                lobbyScreen.classList.remove('active');
+                arScreen.classList.add('active');
+                projectNameInfo.textContent = selectedProject.name;
+                statusTextInfo.textContent = 'Поиск поверхности...';
+                startARCallback();
+            }).finally(() => {
+                startArButton.disabled = false;
+                startArButton.querySelector('span').textContent = 'Начать AR сессию';
+            });
+        }
+    });
+
+    settingsBtn.addEventListener('click', () => {
+        settingsPanel.style.display = 'block';
+    });
+
+    closeSettingsBtn.addEventListener('click', () => {
+        settingsPanel.style.display = 'none';
+    });
+
+    toggleVisibilityBtn.addEventListener('click', () => {
         const model = getModel();
         if(model) {
             model.visible = !model.visible;
-            toggleModelBtn.textContent = model.visible ? 'Скрыть модель' : 'Показать модель';
         }
     });
 
@@ -35,39 +90,57 @@ export function setupUIListeners(renderer, loadFileCallback) {
         if(model) setModelOpacity(model, parseFloat(opacitySlider.value));
     });
 
-    const debugToggle = document.getElementById('debugToggle');
+    resolutionSlider.addEventListener('input', () => {
+        const scale = parseFloat(resolutionSlider.value);
+        sliderLabel.textContent = `Качество рендеринга: ${Math.round(scale * 100)}%`;
+        if (!renderer.xr.isPresenting) {
+            renderer.xr.setFramebufferScaleFactor(scale);
+        }
+    });
+
     debugToggle.addEventListener('change', () => {
         const debugPlanesGroup = getScene().getObjectByName("debugPlanesGroup");
         if(debugPlanesGroup) debugPlanesGroup.visible = debugToggle.checked;
     });
 
-    renderer.xr.addEventListener('sessionstart', () => {
-        sliderContainer.style.display = 'none';
-        if(getModel()) controlsContainer.style.display = 'flex';
-    });
-    renderer.xr.addEventListener('sessionend', () => {
-        sliderContainer.style.display = 'block';
-        controlsContainer.style.display = 'none';
-    });
+    function renderCarousel() {
+        const cards = projectCarousel.querySelectorAll('.project-card:not(.add-new)');
+        cards.forEach(card => card.remove());
 
-    document.getElementById('zipFileInput').addEventListener('change', (event) => {
-        const file = event.target.files[0];
-        if (file) {
-            loadFileCallback(file);
-        }
-    });
+        projects.forEach(project => {
+            const card = document.createElement('div');
+            card.className = 'project-card';
+            card.dataset.projectId = project.id;
+            card.innerHTML = `<h3>${project.name}</h3>`;
 
-    const defectModal = document.getElementById('defectModal');
-    const photoInput = document.getElementById('photoInput');
-    const saveDefectBtn = document.getElementById('saveDefectBtn');
-    const cancelDefectBtn = document.getElementById('cancelDefectBtn');
+            card.addEventListener('click', () => selectProject(project.id));
+            projectCarousel.prepend(card);
+        });
+    }
+
+    function selectProject(projectId) {
+        selectedProject = projects.find(p => p.id === projectId);
+
+        const cards = projectCarousel.querySelectorAll('.project-card');
+        cards.forEach(card => {
+            card.classList.toggle('selected', card.dataset.projectId == projectId);
+        });
+
+        startArButton.disabled = !selectedProject;
+    }
+
+    // --- Wire up all the modal logic ---
+    capturePhotoBtn.addEventListener('click', () => {
+        photoInput.click();
+    });
 
     photoInput.addEventListener('change', (event) => {
         const file = event.target.files[0];
         if (file) {
             const reader = new FileReader();
             reader.onload = (e) => {
-                updateScreenshotPreview(e.target.result);
+                document.getElementById('photoPreview').src = e.target.result;
+                document.getElementById('photoPreview').style.display = 'block';
             };
             reader.readAsDataURL(file);
         }
@@ -83,7 +156,7 @@ export function setupUIListeners(renderer, loadFileCallback) {
             const photoData = document.getElementById('photoPreview').src;
             defect.photo = photoData;
 
-            if (photoData && defect.intersection) {
+            if (photoData && photoData.startsWith('data:image') && defect.intersection) {
                 applyDecal(defect.intersection, photoData);
             }
             console.log("Defect saved:", defect);
@@ -103,9 +176,8 @@ export function setupUIListeners(renderer, loadFileCallback) {
         defectModal.style.display = 'none';
     });
 
-    const logModal = document.getElementById('logModal');
-    document.getElementById('showLogBtn').addEventListener('click', showDefectLog);
-    document.getElementById('closeLogBtn').addEventListener('click', () => logModal.style.display = 'none');
+    showLogBtn.addEventListener('click', showDefectLog);
+    closeLogBtn.addEventListener('click', () => logModal.style.display = 'none');
 }
 
 export function openDefectEditor(defect) {
@@ -127,12 +199,6 @@ export function openDefectEditor(defect) {
     document.getElementById('photoInput').value = '';
 
     modal.style.display = 'flex';
-}
-
-function updateScreenshotPreview(dataURL) {
-    const preview = document.getElementById('photoPreview');
-    preview.src = dataURL;
-    preview.style.display = 'block';
 }
 
 export function showDefectLog() {
