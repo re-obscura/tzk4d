@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { getScene, getController, getReticle, isModelPlaced, setModelPlaced, getModel } from './main.js';
+import { getScene, getController, getReticle, isModelPlaced, setModelPlaced, getModel, getAlignmentState, setAlignmentState, alignModelWithPoints } from './main.js';
 import { getSelectedObject, selectObject, deselectAll } from './model.js';
-import { showInfo, openDefectEditor } from './ui.js';
+import { showInfo, openDefectEditor, setStatusText, updatePositionSliders } from './ui.js';
 
 let tapTimer = null;
 let lastTapTime = 0;
@@ -10,36 +10,33 @@ const DOUBLE_TAP_THRESHOLD = 300;
 
 export const defectLog = [];
 
-export function onSelectStart() {
-    const currentTime = performance.now();
+let floorMatrix = null;
+let wallMatrix = null;
 
-    tapTimer = setTimeout(() => {
-        handleLongPress();
-        tapTimer = null;
-    }, LONG_PRESS_THRESHOLD);
-
-    if (currentTime - lastTapTime < DOUBLE_TAP_THRESHOLD) {
-        clearTimeout(tapTimer);
-        tapTimer = null;
-        handleDoubleClick();
+export function startAlignmentProcess() {
+    if (!getModel()) {
+        alert("Сначала загрузите модель.");
+        return;
     }
-    lastTapTime = currentTime;
+    setModelPlaced(false);
+    
+    // Reset alignment matrices
+    floorMatrix = null;
+    wallMatrix = null;
+    
+    setAlignmentState('waitingForFloor');
+    setStatusText('Наведите на пол и коснитесь экрана');
+    
+    // Reticle is now used for alignment aiming
+    getReticle().visible = true; 
 }
 
-export function onSelectEnd() {
-    if (tapTimer) {
-        clearTimeout(tapTimer);
-        handleSingleClick();
-    }
-}
-
-function handleSingleClick() {
+function placeModelOnReticle() {
     const model = getModel();
     const reticle = getReticle();
     if (!isModelPlaced() && reticle.visible && model) {
         model.position.setFromMatrixPosition(reticle.matrix);
 
-        // Make model 4x smaller to solve scaling issue. This can be adjusted in settings.
         const initialScale = 0.25;
         model.scale.set(initialScale, initialScale, initialScale);
 
@@ -54,19 +51,74 @@ function handleSingleClick() {
         setModelPlaced(true);
         reticle.visible = false;
         
-        const statusText = document.getElementById('statusText');
-        if (statusText) statusText.textContent = 'Модель размещена. Взаимодействуйте с ней.';
-        
-        const fileInputLabel = document.querySelector('.file-input-label');
-        if (fileInputLabel) fileInputLabel.parentElement.style.display = 'none';
+        setStatusText('Модель размещена. Взаимодействуйте с ней.');
+        updatePositionSliders();
         
         const toolbar = document.getElementById('toolbar');
         if(toolbar) toolbar.style.display = 'flex';
     }
 }
 
-function handleDoubleClick() {
-    const intersectedObject = getIntersectedObject();
+function performAlignmentStep() {
+    const reticle = getReticle();
+    if (!reticle.visible) {
+        // Can't align if we don't have a valid hit-test point
+        setStatusText('Не удалось найти поверхность. Попробуйте еще раз.');
+        return;
+    }
+
+    const alignmentState = getAlignmentState();
+    
+    if (alignmentState === 'waitingForFloor') {
+        floorMatrix = reticle.matrix.clone();
+        setStatusText('Отлично! Теперь коснитесь основной стены.');
+        setAlignmentState('waitingForWall');
+
+    } else if (alignmentState === 'waitingForWall') {
+        wallMatrix = reticle.matrix.clone();
+        setStatusText('Стена выбрана. Выравниваю модель...');
+        alignModelWithPoints(floorMatrix, wallMatrix);
+    }
+}
+
+export function onSelectStart(event) {
+    const controller = event.target;
+    const currentTime = performance.now();
+
+    // Only set up timers for interaction if a model is fully placed and we are not aligning
+    if (isModelPlaced() && getAlignmentState() === 'idle') {
+        tapTimer = setTimeout(() => {
+            handleLongPress(controller);
+            tapTimer = null;
+        }, LONG_PRESS_THRESHOLD);
+
+        if (currentTime - lastTapTime < DOUBLE_TAP_THRESHOLD) {
+            if (tapTimer) clearTimeout(tapTimer);
+            tapTimer = null;
+            handleDoubleClick(controller);
+        }
+        lastTapTime = currentTime;
+    }
+}
+
+export function onSelectEnd() {
+    // This handles single taps
+    if (isModelPlaced() && getAlignmentState() === 'idle') {
+        if (tapTimer) {
+            clearTimeout(tapTimer);
+            tapTimer = null;
+            // Short tap on placed model does nothing for now
+        }
+    } else if (getAlignmentState() !== 'idle') {
+        performAlignmentStep();
+    } else {
+        placeModelOnReticle();
+    }
+}
+
+
+function handleDoubleClick(controller) {
+    const intersectedObject = getIntersectedObject(controller);
     if (!intersectedObject) {
         deselectAll();
         return;
@@ -83,10 +135,10 @@ function handleDoubleClick() {
     }
 }
 
-function handleLongPress() {
+function handleLongPress(controller) {
     console.log("Long press detected!");
     const raycaster = new THREE.Raycaster();
-    raycaster.setFromXRController(getController());
+    raycaster.setFromXRController(controller);
     const model = getModel();
     if (!model) return;
 
@@ -94,11 +146,11 @@ function handleLongPress() {
 
     if (intersects.length > 0) {
         const intersection = intersects[0];
-        const intersectedObject = getIntersectedObject(intersection.object);
+        const intersectedComponent = getIntersectedObject(controller, intersection.object);
 
         addDefectMarker(
             intersection,
-            intersectedObject ? intersectedObject.userData.GlobalId : null
+            intersectedComponent ? intersectedComponent.userData.GlobalId : null
         );
     }
 }
@@ -113,7 +165,7 @@ function addDefectMarker(intersection, globalId = null) {
         intersection: {
             point: intersection.point.clone(),
             object: intersection.object,
-            normal: intersection.face.normal.clone(),
+            normal: intersection.face ? intersection.face.normal.clone() : null,
         },
         attachedGlobalId: globalId,
         description: '', type: '', criticality: '', photo: ''
@@ -125,20 +177,22 @@ function addDefectMarker(intersection, globalId = null) {
     openDefectEditor(defect);
 }
 
-function getIntersectedObject(initialObject = null) {
+function getIntersectedObject(controller, initialObject = null) {
     const model = getModel();
     if (!model) return null;
     if (!initialObject) {
         const raycaster = new THREE.Raycaster();
-        raycaster.setFromXRController(getController());
+        raycaster.setFromXRController(controller);
         const intersects = raycaster.intersectObject(model, true);
         if (intersects.length === 0) return null;
         initialObject = intersects[0].object;
     }
 
-    while (initialObject) {
-        if (initialObject.userData.GlobalId) return initialObject;
-        initialObject = initialObject.parent;
+    let current = initialObject;
+    while (current) {
+        if (current.userData.GlobalId) return current;
+        current = current.parent;
     }
     return null;
 }
+

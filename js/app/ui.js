@@ -1,6 +1,6 @@
 import { setModelOpacity, applyDecal } from './model.js';
-import { defectLog } from './interactions.js';
-import { getScene, getModel, getBimData } from './main.js';
+import { defectLog, startAlignmentProcess } from './interactions.js';
+import { getScene, getModel, getBimData, getDebugPlanesGroup } from './main.js';
 
 // This is the fully integrated UI management script
 export function setupUIListeners(renderer, loadFileCallback, startARCallback) {
@@ -17,6 +17,7 @@ export function setupUIListeners(renderer, loadFileCallback, startARCallback) {
     const projectNameInfo = document.getElementById('projectName');
     const statusTextInfo = document.getElementById('statusText');
     const toggleVisibilityBtn = document.getElementById('toggleVisibilityBtn');
+    const alignModelBtn = document.getElementById('alignModelBtn');
     const opacitySlider = document.getElementById('opacitySlider');
     const resolutionSlider = document.getElementById('resolutionSlider');
     const resolutionSliderLabel = document.getElementById('resolutionSliderLabel');
@@ -70,7 +71,7 @@ export function setupUIListeners(renderer, loadFileCallback, startARCallback) {
                 lobbyScreen.classList.remove('active');
                 arScreen.classList.add('active');
                 projectNameInfo.textContent = selectedProject.name;
-                statusTextInfo.textContent = 'Поиск поверхности...';
+                setStatusText('Поиск поверхности...');
                 startARCallback();
             }).finally(() => {
                 startArButton.disabled = false;
@@ -85,6 +86,10 @@ export function setupUIListeners(renderer, loadFileCallback, startARCallback) {
 
     closeSettingsBtn.addEventListener('click', () => {
         settingsPanel.style.display = 'none';
+    });
+
+    alignModelBtn.addEventListener('click', () => {
+        startAlignmentProcess();
     });
 
     toggleVisibilityBtn.addEventListener('click', () => {
@@ -144,7 +149,7 @@ export function setupUIListeners(renderer, loadFileCallback, startARCallback) {
     });
 
     debugToggle.addEventListener('change', () => {
-        const debugPlanesGroup = getScene().getObjectByName("debugPlanesGroup");
+        const debugPlanesGroup = getDebugPlanesGroup();
         if(debugPlanesGroup) debugPlanesGroup.visible = debugToggle.checked;
     });
 
@@ -244,6 +249,12 @@ export function updatePositionSliders() {
         positionZLabel.textContent = `Позиция Z: ${model.position.z.toFixed(2)}`;
     }
 }
+
+export function setStatusText(text) {
+    const statusTextInfo = document.getElementById('statusText');
+    if (statusTextInfo) statusTextInfo.textContent = text;
+}
+
 
 export function isUIActive() {
     const settingsPanel = document.getElementById('settingsPanel');
