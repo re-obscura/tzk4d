@@ -19,12 +19,21 @@ export function setupUIListeners(renderer, loadFileCallback, startARCallback) {
     const toggleVisibilityBtn = document.getElementById('toggleVisibilityBtn');
     const opacitySlider = document.getElementById('opacitySlider');
     const resolutionSlider = document.getElementById('resolutionSlider');
-    const sliderLabel = document.getElementById('sliderLabel');
+    const resolutionSliderLabel = document.getElementById('resolutionSliderLabel');
+    const modelScaleSlider = document.getElementById('modelScaleSlider');
+    const modelScaleLabel = document.getElementById('modelScaleLabel');
+    const positionXSlider = document.getElementById('positionXSlider');
+    const positionYSlider = document.getElementById('positionYSlider');
+    const positionZSlider = document.getElementById('positionZSlider');
+    const positionXLabel = document.getElementById('positionXLabel');
+    const positionYLabel = document.getElementById('positionYLabel');
+    const positionZLabel = document.getElementById('positionZLabel');
     const debugToggle = document.getElementById('debugToggle');
     const showLogBtn = document.getElementById('showLogBtn');
     // Modals
     const defectModal = document.getElementById('defectModal');
     const logModal = document.getElementById('logModal');
+    const infoBox = document.getElementById('infoBox');
     const photoInput = document.getElementById('photoInput');
     const capturePhotoBtn = document.getElementById('capturePhotoBtn');
     const saveDefectBtn = document.getElementById('saveDefectBtn');
@@ -90,9 +99,45 @@ export function setupUIListeners(renderer, loadFileCallback, startARCallback) {
         if(model) setModelOpacity(model, parseFloat(opacitySlider.value));
     });
 
+    modelScaleSlider.addEventListener('input', () => {
+        const scale = parseFloat(modelScaleSlider.value);
+        const model = getModel();
+        if(model) {
+            model.scale.set(scale, scale, scale);
+        }
+        modelScaleLabel.textContent = `Масштаб модели: ${Math.round(scale * 100)}%`;
+    });
+
+    positionXSlider.addEventListener('input', () => {
+        const model = getModel();
+        if (model) {
+            const value = parseFloat(positionXSlider.value);
+            model.position.x = value;
+            positionXLabel.textContent = `Позиция X: ${value.toFixed(2)}`;
+        }
+    });
+
+    positionYSlider.addEventListener('input', () => {
+        const model = getModel();
+        if (model) {
+            const value = parseFloat(positionYSlider.value);
+            model.position.y = value;
+            positionYLabel.textContent = `Позиция Y: ${value.toFixed(2)}`;
+        }
+    });
+
+    positionZSlider.addEventListener('input', () => {
+        const model = getModel();
+        if (model) {
+            const value = parseFloat(positionZSlider.value);
+            model.position.z = value;
+            positionZLabel.textContent = `Позиция Z: ${value.toFixed(2)}`;
+        }
+    });
+
     resolutionSlider.addEventListener('input', () => {
         const scale = parseFloat(resolutionSlider.value);
-        sliderLabel.textContent = `Качество рендеринга: ${Math.round(scale * 100)}%`;
+        resolutionSliderLabel.textContent = `Качество рендеринга: ${Math.round(scale * 100)}%`;
         if (!renderer.xr.isPresenting) {
             renderer.xr.setFramebufferScaleFactor(scale);
         }
@@ -178,6 +223,38 @@ export function setupUIListeners(renderer, loadFileCallback, startARCallback) {
 
     showLogBtn.addEventListener('click', showDefectLog);
     closeLogBtn.addEventListener('click', () => logModal.style.display = 'none');
+}
+
+export function updatePositionSliders() {
+    const model = getModel();
+    if (model) {
+        const positionXSlider = document.getElementById('positionXSlider');
+        const positionYSlider = document.getElementById('positionYSlider');
+        const positionZSlider = document.getElementById('positionZSlider');
+        const positionXLabel = document.getElementById('positionXLabel');
+        const positionYLabel = document.getElementById('positionYLabel');
+        const positionZLabel = document.getElementById('positionZLabel');
+
+        positionXSlider.value = model.position.x;
+        positionYSlider.value = model.position.y;
+        positionZSlider.value = model.position.z;
+
+        positionXLabel.textContent = `Позиция X: ${model.position.x.toFixed(2)}`;
+        positionYLabel.textContent = `Позиция Y: ${model.position.y.toFixed(2)}`;
+        positionZLabel.textContent = `Позиция Z: ${model.position.z.toFixed(2)}`;
+    }
+}
+
+export function isUIActive() {
+    const settingsPanel = document.getElementById('settingsPanel');
+    const defectModal = document.getElementById('defectModal');
+    const logModal = document.getElementById('logModal');
+    const infoBox = document.getElementById('infoBox');
+
+    return settingsPanel.style.display === 'block' ||
+           defectModal.style.display === 'flex' ||
+           logModal.style.display === 'flex' ||
+           infoBox.style.display === 'block';
 }
 
 export function openDefectEditor(defect) {

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { getScene, getController, getReticle, isModelPlaced, setModelPlaced, getDebugPlanes, getModel } from './main.js';
+import { getScene, getController, getReticle, isModelPlaced, setModelPlaced, getModel } from './main.js';
 import { getSelectedObject, selectObject, deselectAll } from './model.js';
 import { showInfo, openDefectEditor } from './ui.js';
 
@@ -38,12 +38,30 @@ function handleSingleClick() {
     const reticle = getReticle();
     if (!isModelPlaced() && reticle.visible && model) {
         model.position.setFromMatrixPosition(reticle.matrix);
+
+        // Make model 4x smaller to solve scaling issue. This can be adjusted in settings.
+        const initialScale = 0.25;
+        model.scale.set(initialScale, initialScale, initialScale);
+
+        const modelScaleSlider = document.getElementById('modelScaleSlider');
+        const modelScaleLabel = document.getElementById('modelScaleLabel');
+        if (modelScaleSlider && modelScaleLabel) {
+            modelScaleSlider.value = initialScale;
+            modelScaleLabel.textContent = `Масштаб модели: ${Math.round(initialScale * 100)}%`;
+        }
+
         getScene().add(model);
         setModelPlaced(true);
         reticle.visible = false;
-        document.getElementById('info').textContent = 'Модель размещена. Взаимодействуйте с ней.';
-        document.querySelector('.file-input-label').style.display = 'none';
-        document.getElementById('controlsContainer').style.display = 'flex';
+        
+        const statusText = document.getElementById('statusText');
+        if (statusText) statusText.textContent = 'Модель размещена. Взаимодействуйте с ней.';
+        
+        const fileInputLabel = document.querySelector('.file-input-label');
+        if (fileInputLabel) fileInputLabel.parentElement.style.display = 'none';
+        
+        const toolbar = document.getElementById('toolbar');
+        if(toolbar) toolbar.style.display = 'flex';
     }
 }
 
@@ -124,4 +142,3 @@ function getIntersectedObject(initialObject = null) {
     }
     return null;
 }
-

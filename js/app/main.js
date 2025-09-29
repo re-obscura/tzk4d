@@ -13,6 +13,12 @@ let model, bimData;
 let modelPlaced = false;
 let arButton;
 
+// --- Переменные для управления состоянием модели при перезапуске ---
+let arRestartRequested = false;
+let shouldRestoreModel = false;
+const lastModelPosition = new THREE.Vector3();
+const lastModelQuaternion = new THREE.Quaternion();
+
 // --- Debug ---
 const debugPlanes = new Map();
 const debugPlanesGroup = new THREE.Group();
@@ -30,13 +36,23 @@ export const setModelPlaced = (value) => { modelPlaced = value; };
 export const getModel = () => model;
 export const getBimData = () => bimData;
 
+// --- Функция для запроса перезапуска AR и сохранения состояния модели ---
+export function requestARRestart() {
+    if (model && modelPlaced) {
+        console.log("Saving model state before AR session exit.");
+        lastModelPosition.copy(model.position);
+        lastModelQuaternion.copy(model.quaternion);
+        shouldRestoreModel = true; // Устанавливаем флаг для восстановления
+    }
+    arRestartRequested = true;
+}
 
 init();
 animate();
 
 function init() {
     scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 40);
+    camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.01, 1000);
     const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 2);
     light.position.set(0.5, 1, 0.25);
     scene.add(light);
@@ -57,6 +73,8 @@ function init() {
     arButton.style.display = 'none';
     document.body.appendChild(arButton);
 
+    renderer.xr.addEventListener('sessionend', onSessionEnd);
+
     setupUIListeners(renderer, loadFile, () => arButton.click());
 
     controller = renderer.xr.getController(0);
@@ -72,6 +90,27 @@ function init() {
     window.addEventListener('resize', onWindowResize);
 }
 
+function onSessionEnd() {
+    console.log("AR Session Ended.");
+    hitTestSourceRequested = false;
+    hitTestSource = null;
+    setModelPlaced(false); // Всегда сбрасываем, чтобы логика размещения/восстановления сработала
+    reticle.visible = false;
+
+    // Скрываем модель, только если не планируем ее восстанавливать
+    if (model && !shouldRestoreModel) {
+        model.visible = false;
+    }
+
+    if (arRestartRequested) {
+        console.log("Requesting AR session restart.");
+        arRestartRequested = false;
+        // Небольшая задержка перед кликом может помочь избежать некоторых проблем в браузере
+        setTimeout(() => arButton.click(), 100);
+    }
+}
+
+
 async function loadFile(file) {
     document.getElementById('statusText').textContent = 'Загрузка модели...';
     try {
@@ -85,6 +124,7 @@ async function loadFile(file) {
         bimData = loadedData.bimData;
 
         setModelPlaced(false);
+        shouldRestoreModel = false; // Сбрасываем флаг при загрузке нового файла
     } catch (error) {
         console.error("Failed to load file:", error);
         alert("Ошибка при загрузке файла. Проверьте консоль для деталей.");
@@ -110,62 +150,74 @@ function render(timestamp, frame) {
 
         if (debugPlanesGroup.visible && frame.detectedPlanes) {
             const detectedPlanes = frame.detectedPlanes;
-                        const currentPlaneIds = new Set();
+            const currentPlaneIds = new Set();
 
-                        detectedPlanes.forEach(plane => {
-                            currentPlaneIds.add(plane);
-                            let planeMesh = debugPlanes.get(plane);
+            detectedPlanes.forEach(plane => {
+                currentPlaneIds.add(plane);
+                let planeMesh = debugPlanes.get(plane);
+                if (!planeMesh) {
+                    const pose = frame.getPose(plane.planeSpace, referenceSpace);
+                    if (pose) {
+                        const planeGeometry = new THREE.PlaneGeometry(1, 1);
+                        const debugPlaneMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.2, side: THREE.DoubleSide });
+                        planeMesh = new THREE.Mesh(planeGeometry, debugPlaneMaterial);
+                        debugPlanes.set(plane, planeMesh);
+                        debugPlanesGroup.add(planeMesh);
+                    }
+                }
+                if(planeMesh) {
+                    const pose = frame.getPose(plane.planeSpace, referenceSpace);
+                    if (pose) {
+                        planeMesh.position.copy(pose.transform.position);
+                        planeMesh.quaternion.copy(pose.transform.orientation);
+                    }
+                }
+            });
 
-                            if (!planeMesh) {
-                                const pose = frame.getPose(plane.planeSpace, referenceSpace);
-                                if (pose) {
-                                    const planeGeometry = new THREE.PlaneGeometry(1, 1);
-                                    planeMesh = new THREE.Mesh(planeGeometry, debugPlaneMaterial);
-
-                                    debugPlanes.set(plane, planeMesh);
-                                    debugPlanesGroup.add(planeMesh);
-                                }
-                            }
-
-                            if(planeMesh) {
-                                const pose = frame.getPose(plane.planeSpace, referenceSpace);
-                                if (pose) {
-                                    planeMesh.position.copy(pose.transform.position);
-                                    planeMesh.quaternion.copy(pose.transform.orientation);
-                                }
-                            }
-                        });
-
-                        debugPlanes.forEach((mesh, plane) => {
-                            if (!currentPlaneIds.has(plane)) {
-                                debugPlanesGroup.remove(mesh);
-                                debugPlanes.delete(plane);
-                            }
-                        });
+            debugPlanes.forEach((mesh, plane) => {
+                if (!currentPlaneIds.has(plane)) {
+                    debugPlanesGroup.remove(mesh);
+                    debugPlanes.delete(plane);
+                }
+            });
         }
 
         if (!modelPlaced) {
-            if (hitTestSourceRequested === false) {
-                session.requestReferenceSpace('viewer').then(function (referenceSpace) {
-                    session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
-                        hitTestSource = source;
-                    });
-                });
-                session.addEventListener('end', () => {
-                    hitTestSourceRequested = false;
-                    hitTestSource = null;
-                });
-                hitTestSourceRequested = true;
-            }
+            // Логика восстановления модели
+            if (shouldRestoreModel && model) {
+                console.log("Restoring model position.");
+                model.position.copy(lastModelPosition);
+                model.quaternion.copy(lastModelQuaternion);
 
-            if (hitTestSource) {
-                const hitTestResults = frame.getHitTestResults(hitTestSource);
-                if (hitTestResults.length) {
-                    const hit = hitTestResults[0];
-                    reticle.visible = true;
-                    reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
-                } else {
-                    reticle.visible = false;
+                if (!model.parent) { // Убедимся, что модель добавлена на сцену
+                    scene.add(model);
+                }
+                model.visible = true;
+
+                setModelPlaced(true);
+                shouldRestoreModel = false; // Восстановление выполнено
+                reticle.visible = false;
+            } else {
+                // Стандартная логика размещения с помощью "прицела"
+                if (hitTestSourceRequested === false && session) {
+                    session.requestReferenceSpace('viewer').then(function (referenceSpace) {
+                        session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
+                            hitTestSource = source;
+                        });
+                    });
+                    hitTestSourceRequested = true;
+                }
+
+                if (hitTestSource) {
+                    const hitTestResults = frame.getHitTestResults(hitTestSource);
+                    if (hitTestResults.length) {
+                        const hit = hitTestResults[0];
+                        if(model) model.visible = true;
+                        reticle.visible = true;
+                        reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+                    } else {
+                        reticle.visible = false;
+                    }
                 }
             }
         }
