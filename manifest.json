@@ -1,0 +1,23 @@
+{
+  "name": "TZK4D Viewer",
+  "short_name": "TZK4D",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#2a2a2a",
+  "theme_color": "#000000",
+  "description": "3D model viewer for TZK4D, now as a Progressive Web App.",
+  "icons": [
+    {
+      "src": "hiro.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "hiro.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
